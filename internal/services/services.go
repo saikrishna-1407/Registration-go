@@ -17,7 +17,7 @@ import (
 // RegisterUserHandler handles the /api/register endpoint to post the data
 func RegisterUserHandler(repo providers.RepoStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		fmt.Println("\n\n  [REGISTER] Starting in services.go ")
+		fmt.Println("\n\n REGISTER Starting in services.go ")
 
 		// This will Parse JSON
 		var input map[string]interface{}
