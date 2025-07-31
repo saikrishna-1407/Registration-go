@@ -28,7 +28,7 @@ func SetupRouter(srv *Service) (*gin.Engine, error) {
 		ExposedHeaders: "",
 	}))
 
-	// Health check
+	// status check
 	router.GET("/CheckStatus", func(c *gin.Context) {
 		fmt.Println(" GET /CheckStatus received")
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
