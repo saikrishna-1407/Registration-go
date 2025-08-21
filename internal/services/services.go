@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"finalreg/enums"
+
+	"finalreg/internal/forms"
 	model "finalreg/internal/models"
 	"finalreg/internal/providers"
 
@@ -15,21 +17,21 @@ import (
 )
 
 // RegisterUserHandler handles the /api/register endpoint to post the data
-func RegisterUserHandler(repo providers.RepoStore) gin.HandlerFunc {
+func RegisterUserHandler(repo providers.RepoStore, Name string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fmt.Println("\n\n REGISTER Starting in services.go ")
 
-		// This will Parse JSON
-		var input map[string]interface{}
+		// Parse JSON into struct
+		var input forms.UserForm
 		fmt.Println(" Parsing JSON...")
 		if err := c.ShouldBindJSON(&input); err != nil {
 			fmt.Printf(" JSON error: %v\n", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		fmt.Printf(" Parsed input: %+v\n", input)
 
-		// This will Validate the data
+		// Validate the data
 		if err := validateInput(input); err != nil {
 			fmt.Printf(" Validation failed: %v\n", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -37,10 +39,9 @@ func RegisterUserHandler(repo providers.RepoStore) gin.HandlerFunc {
 		}
 		fmt.Println(" All validations passed!")
 
-		// This will Hash the password
-		password := input["password"].(string)
+		// Hash password
 		fmt.Println(" Hashing password...")
-		hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 		if err != nil {
 			fmt.Printf(" Hashing failed: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not hash password"})
@@ -48,32 +49,23 @@ func RegisterUserHandler(repo providers.RepoStore) gin.HandlerFunc {
 		}
 		fmt.Println(" Password hashed")
 
-		// This will parse the  DOB
-		dobStr := input["dateOfBirth"].(string)
-		dob, err := time.Parse("2006-01-02", dobStr)
-		if err != nil {
-			fmt.Printf(" Invalid date format: %v\n", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
-			return
-		}
-
-		// This will Create user model
+		// Create user model
 		user := &model.User{
-			FullName:      input["fullName"].(string),
-			Email:         input["email"].(string),
+			FullName:      input.FullName,
+			Email:         input.Email,
 			Password:      string(hashed),
-			Username:      input["username"].(string),
-			DateOfBirth:   dob,
-			PhoneNumber:   input["phoneNumber"].(string),
-			Gender:        input["gender"].(string),
-			Country:       input["country"].(string),
-			State:         input["state"].(string),
-			PinCode:       input["pinCode"].(string),
-			ReferralCode:  input["referralCode"].(string),
-			TermsAccepted: input["termsAccepted"].(bool),
+			Username:      input.Username,
+			DateOfBirth:   input.DateOfBirth,
+			PhoneNumber:   input.PhoneNumber,
+			Gender:        input.Gender,
+			Country:       input.Country,
+			State:         input.State,
+			PinCode:       input.PinCode,
+			ReferralCode:  input.ReferralCode,
+			TermsAccepted: input.TermsAccepted,
 		}
 
-		// This will Save data to database
+		// Save to DB
 		fmt.Println(" Saving user to database...")
 		if err := repo.CreateUser(user); err != nil {
 			fmt.Printf(" Failed to save user: %v\n", err)
@@ -82,16 +74,16 @@ func RegisterUserHandler(repo providers.RepoStore) gin.HandlerFunc {
 		}
 		fmt.Printf(" User saved! ID: %d, Email: %s\n", user.ID, user.Email)
 
-		// This will Send success message back
-		c.JSON(http.StatusCreated, gin.H{
-			"message": "User registered successfully",
-			"userId":  user.ID,
-			"email":   user.Email,
-		})
+		// Success response
+		c.Set("userID", user.ID)
+		c.Set("email", user.Email)
+
+		// Just continue, let handler layer finalize the response
+		c.Next()
 	}
 }
 
-// GetAllUsersHandler handles GET /api/users to get the data
+// handles GET /api/users
 func GetAllUsersHandler(repo providers.RepoStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fmt.Println(" GET /api/users received in services.go")
@@ -110,112 +102,97 @@ func GetAllUsersHandler(repo providers.RepoStore) gin.HandlerFunc {
 	}
 }
 
-// This will validate all the Input Data
-func validateInput(input map[string]interface{}) error {
+// validates all the input data
+func validateInput(input forms.UserForm) error {
 	fmt.Println(" Running validations...")
 
 	// 1. Email
-	email, _ := input["email"].(string)
-	if email == "" {
+	if input.Email == "" {
 		return fmt.Errorf("email is required")
 	}
-	if !regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`).MatchString(email) {
+	if !regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`).MatchString(input.Email) {
 		return fmt.Errorf("invalid email format")
 	}
 	fmt.Println(" Email valid")
 
 	// 2. Username
-	username, _ := input["username"].(string)
-	if len(username) < 4 || len(username) > 20 {
+	if len(input.Username) < 4 || len(input.Username) > 20 {
 		return fmt.Errorf("username must be 4-20 characters")
 	}
-	if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(username) {
+	if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(input.Username) {
 		return fmt.Errorf("username can only have letters, numbers, underscore")
 	}
 	fmt.Println(" Username valid")
 
 	// 3. Full Name
-	fullName, _ := input["fullName"].(string)
-	if len(fullName) < 3 || len(fullName) > 50 {
+	if len(input.FullName) < 3 || len(input.FullName) > 50 {
 		return fmt.Errorf("full name must be 3-50 characters")
 	}
-	if !regexp.MustCompile(`^[a-zA-Z\s]+$`).MatchString(fullName) {
+	if !regexp.MustCompile(`^[a-zA-Z\s]+$`).MatchString(input.FullName) {
 		return fmt.Errorf("full name can only have letters and spaces")
 	}
 	fmt.Println(" Full name valid")
 
 	// 4. Password
-	password, _ := input["password"].(string)
-	if len(password) < 8 {
+	if len(input.Password) < 8 {
 		return fmt.Errorf("password must be at least 8 characters")
 	}
-	if !regexp.MustCompile(`[A-Z]`).MatchString(password) {
+	if !regexp.MustCompile(`[A-Z]`).MatchString(input.Password) {
 		return fmt.Errorf("password must have uppercase")
 	}
-	if !regexp.MustCompile(`[a-z]`).MatchString(password) {
+	if !regexp.MustCompile(`[a-z]`).MatchString(input.Password) {
 		return fmt.Errorf("password must have lowercase")
 	}
-	if !regexp.MustCompile(`[0-9]`).MatchString(password) {
+	if !regexp.MustCompile(`[0-9]`).MatchString(input.Password) {
 		return fmt.Errorf("password must have number")
 	}
-	if !regexp.MustCompile(`[!@#$%^&*]`).MatchString(password) {
+	if !regexp.MustCompile(`[!@#$%^&*]`).MatchString(input.Password) {
 		return fmt.Errorf("password must have special character")
 	}
-	if password != input["confirmPassword"].(string) {
+	if input.Password != input.ConfirmPassword {
 		return fmt.Errorf("passwords do not match")
 	}
 	fmt.Println(" Password valid")
 
 	// 5. DOB (18+)
-	dobStr, _ := input["dateOfBirth"].(string)
-	dob, err := time.Parse("2006-01-02", dobStr)
-	if err != nil {
-		return fmt.Errorf("invalid date format")
-	}
-	if time.Since(dob).Hours()/24/365 < 18 {
+	if time.Since(input.DateOfBirth).Hours()/24/365 < 18 {
 		return fmt.Errorf("you must be 18 or older")
 	}
 	fmt.Println(" Age valid")
 
 	// 6. Phone Number
-	phone, _ := input["phoneNumber"].(string)
-	if !regexp.MustCompile(`^\+91\d{10}$`).MatchString(phone) {
+	if !regexp.MustCompile(`^\+91\d{10}$`).MatchString(input.PhoneNumber) {
 		return fmt.Errorf("phone must be +91XXXXXXXXXX")
 	}
 	fmt.Println(" Phone valid")
 
 	// 7. Gender
-	gender, _ := input["gender"].(string)
-	if gender != "" {
-		valid := stringInSlice(gender, enums.ValidGenders)
-		if !valid {
+	if input.Gender != "" {
+		if !stringInSlice(input.Gender, enums.ValidGenders) {
 			return fmt.Errorf("gender must be male, female, other, or prefer_not_to_say")
 		}
 	}
 	fmt.Println(" Gender valid")
 
 	// 8. Country
-	country, _ := input["country"].(string)
-	if !stringInSlice(country, enums.ValidCountries) {
+	if !stringInSlice(input.Country, enums.ValidCountries) {
 		return fmt.Errorf("invalid country")
 	}
 	fmt.Println(" Country valid")
 
 	// 9. State & PinCode (if India)
-	if country == "India" {
-		state, _ := input["state"].(string)
-		if state == "" || !stringInSlice(state, enums.IndianStates) {
+	if input.Country == "India" {
+		if input.State == "" || !stringInSlice(input.State, enums.IndianStates) {
 			return fmt.Errorf("invalid Indian state")
 		}
-		pinCode, _ := input["pinCode"].(string)
-		if !regexp.MustCompile(`^\d{6}$`).MatchString(pinCode) {
+		if !regexp.MustCompile(`^\d{6}$`).MatchString(input.PinCode) {
 			return fmt.Errorf("pin code must be 6 digits")
 		}
 		fmt.Println(" State & pinCode valid for India")
 	}
 
 	// 10. Terms
-	if !input["termsAccepted"].(bool) {
+	if !input.TermsAccepted {
 		return fmt.Errorf("you must accept terms")
 	}
 	fmt.Println(" Terms accepted")
@@ -224,7 +201,7 @@ func validateInput(input map[string]interface{}) error {
 	return nil
 }
 
-// stringInSlice checks if a string is in a slice
+// checks if a string is in a slice
 func stringInSlice(a string, list []string) bool {
 	for _, b := range list {
 		if b == a {

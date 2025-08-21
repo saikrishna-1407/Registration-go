@@ -35,7 +35,9 @@ func SetupRouter(srv *Service) (*gin.Engine, error) {
 	})
 
 	// Register user
-	router.POST("/api/register", services.RegisterUserHandler(srv.Db))
+	router.POST("/api/register", services.RegisterUserHandler(srv.Db, srv.ServiceName),
+		SuccessResponseHandler,
+	)
 
 	// Get all users
 	router.GET("/api/users", services.GetAllUsersHandler(srv.Db))
