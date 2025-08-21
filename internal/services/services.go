@@ -77,8 +77,6 @@ func RegisterUserHandler(repo providers.RepoStore, Name string) gin.HandlerFunc 
 		// Success response
 		c.Set("userID", user.ID)
 		c.Set("email", user.Email)
-
-		// Just continue, let handler layer finalize the response
 		c.Next()
 	}
 }
