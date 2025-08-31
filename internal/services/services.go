@@ -1,8 +1,8 @@
 package services
 
 import (
+	"errors"
 	"fmt"
-	"net/http"
 	"regexp"
 	"time"
 
@@ -12,92 +12,94 @@ import (
 	model "finalreg/internal/models"
 	"finalreg/internal/providers"
 
-	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // RegisterUserHandler handles the /api/register endpoint to post the data
-func RegisterUserHandler(repo providers.RepoStore, Name string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		fmt.Println("\n\n REGISTER Starting in services.go ")
-
-		// Parse JSON into struct
-		var input forms.UserForm
-		fmt.Println(" Parsing JSON...")
-		if err := c.ShouldBindJSON(&input); err != nil {
-			fmt.Printf(" JSON error: %v\n", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		fmt.Printf(" Parsed input: %+v\n", input)
-
-		// Validate the data
-		if err := validateInput(input); err != nil {
-			fmt.Printf(" Validation failed: %v\n", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		fmt.Println(" All validations passed!")
-
-		// Hash password
-		fmt.Println(" Hashing password...")
-		hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-		if err != nil {
-			fmt.Printf(" Hashing failed: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not hash password"})
-			return
-		}
-		fmt.Println(" Password hashed")
-
-		// Create user model
-		user := &model.User{
-			FullName:      input.FullName,
-			Email:         input.Email,
-			Password:      string(hashed),
-			Username:      input.Username,
-			DateOfBirth:   input.DateOfBirth,
-			PhoneNumber:   input.PhoneNumber,
-			Gender:        input.Gender,
-			Country:       input.Country,
-			State:         input.State,
-			PinCode:       input.PinCode,
-			ReferralCode:  input.ReferralCode,
-			TermsAccepted: input.TermsAccepted,
-		}
-
-		// Save to DB
-		fmt.Println(" Saving user to database...")
-		if err := repo.CreateUser(user); err != nil {
-			fmt.Printf(" Failed to save user: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
-			return
-		}
-		fmt.Printf(" User saved! ID: %d, Email: %s\n", user.ID, user.Email)
-
-		// Success response
-		c.Set("userID", user.ID)
-		c.Set("email", user.Email)
-		c.Next()
+func RegisterUserService(repo providers.RepoStore, input forms.UserForm) (*model.User, error) {
+	// Validate input
+	if err := validateInput(input); err != nil {
+		return nil, err
 	}
+
+	// Hash password
+	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("could not hash password: %w", err)
+	}
+
+	// Create user model
+	user := &model.User{
+		FullName:      input.FullName,
+		Email:         input.Email,
+		Password:      string(hashed),
+		Username:      input.Username,
+		DateOfBirth:   input.DateOfBirth,
+		PhoneNumber:   input.PhoneNumber,
+		Gender:        input.Gender,
+		Country:       input.Country,
+		State:         input.State,
+		PinCode:       input.PinCode,
+		ReferralCode:  input.ReferralCode,
+		TermsAccepted: input.TermsAccepted,
+	}
+
+	// Save user in DB
+	createdUser, err := repo.CreateUser(user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	return createdUser, nil
+}
+
+func UpdateUserService(repo providers.RepoStore, id uint, updatedData model.User) (*model.User, error) {
+	db := repo.GetDB()
+
+	var user model.User
+	// find user
+	if err := db.First(&user, id).Error; err != nil {
+		return nil, errors.New("user not found")
+	}
+	// update allowed fields
+	user.FullName = updatedData.FullName
+	user.PhoneNumber = updatedData.PhoneNumber
+	user.State = updatedData.State
+	user.Country = updatedData.Country
+
+	// save updates
+	if err := db.Save(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
 }
 
 // handles GET /api/users
-func GetAllUsersHandler(repo providers.RepoStore) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		fmt.Println(" GET /api/users received in services.go")
+func GetAllUsersService(repo providers.RepoStore) ([]model.User, error) {
+	var users []model.User
 
-		db := repo.GetDB()
-		var users []model.User
-
-		if err := db.Find(&users).Error; err != nil {
-			fmt.Printf(" Failed to fetch users: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch users"})
-			return
-		}
-
-		fmt.Printf(" Found %d users\n", len(users))
-		c.JSON(http.StatusOK, users)
+	db := repo.GetDB()
+	if err := db.Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch users: %w", err)
 	}
+
+	return users, nil
+}
+
+func GetUserByIDService(repo providers.RepoStore, id uint) (*model.User, error) {
+	var user model.User
+	if err := repo.GetDB().First(&user, id).Error; err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	return &user, nil
+}
+
+func DeleteUserService(repo providers.RepoStore, id uint) error {
+	if err := repo.GetDB().Delete(&model.User{}, id).Error; err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
 }
 
 // validates all the input data

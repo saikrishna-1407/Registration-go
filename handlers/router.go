@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"finalreg/internal/services"
-
 	"github.com/gin-contrib/requestid"
 	"github.com/gin-gonic/gin"
 	cors "github.com/itsjamie/gin-cors"
@@ -35,12 +33,16 @@ func SetupRouter(srv *Service) (*gin.Engine, error) {
 	})
 
 	// Register user
-	router.POST("/api/register", services.RegisterUserHandler(srv.Db, srv.ServiceName),
+	router.POST("/api/register", RegisterUserHandler(srv.Db),
 		SuccessResponseHandler,
 	)
 
 	// Get all users
-	router.GET("/api/users", services.GetAllUsersHandler(srv.Db))
+	router.GET("/api/users", GetAllUsersHandler(srv.Db))
+	router.GET("/api/users/:id", GetUserByIDHandler(srv.Db))
+	router.GET("/api/users/count", GetUserCountHandler(srv.Db))
+	router.PUT("/api/users/:id", UpdateUserHandler(srv.Db))
+	router.DELETE("/api/users/:id", DeleteUserHandler(srv.Db))
 
 	return router, nil
 }

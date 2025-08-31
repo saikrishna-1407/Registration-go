@@ -15,6 +15,6 @@ type Repository interface {
 }
 
 type UserRepositories interface {
-	CreateUser(user *model.User) error
+	CreateUser(user *model.User) (*model.User, error)
 	GetDB() *gorm.DB
 }
